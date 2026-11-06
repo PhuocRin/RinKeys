@@ -1711,6 +1711,8 @@ final class CommandTap {
     var onPeekStart: (() -> Void)?
     var onPeekEnd: (() -> Void)?
     private var monitors: [Any] = []
+    /// Chỉ nghe phím thường trong lúc đang giữ ⌘, để lúc gõ chữ bình thường RinKeys không bị gọi dậy.
+    private var keyMonitor: Any?
     private var down = false
     private var downAt = Date.distantPast
     private var lastTapUp = Date.distantPast
@@ -1730,14 +1732,12 @@ final class CommandTap {
             MainActor.assumeIsolated { self?.handle(flags) }
             return e
         }) { monitors.append(m) }
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] _ in
-            MainActor.assumeIsolated { self?.keyPressed() }
-        }) { monitors.append(m) }
     }
 
     func stop() {
         for m in monitors { NSEvent.removeMonitor(m) }
         monitors.removeAll()
+        watchKeys(false)
         holdWork?.cancel()
         down = false
         armed = false
@@ -1748,6 +1748,17 @@ final class CommandTap {
         holdWork?.cancel()
         armed = false
         lastTapUp = .distantPast
+    }
+
+    private func watchKeys(_ on: Bool) {
+        if on, keyMonitor == nil {
+            keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
+                MainActor.assumeIsolated { self?.keyPressed() }
+            }
+        } else if !on, let m = keyMonitor {
+            NSEvent.removeMonitor(m)
+            keyMonitor = nil
+        }
     }
 
     private func keyPressed() {
@@ -1762,6 +1773,7 @@ final class CommandTap {
     private func handle(_ raw: NSEvent.ModifierFlags) {
         let f = raw.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .function, .numericPad])
         let now = Date()
+        watchKeys(f.contains(.command))
         if f == .command && !down {
             down = true
             downAt = now
@@ -2634,9 +2646,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tap.onPeekEnd = { [weak self] in self?.panel.endPeek() }
         applyPrefs()
         Diag.log("start \(AppInfo.version), trusted=\(model.trusted)")
-        trustTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkTrust() }
-        }
+        if !model.trusted { watchTrust() }
         setupUpdater()
     }
 
@@ -2651,8 +2661,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tap.start()
     }
 
-    private func checkTrust() {
+    /// Chưa có quyền thì 1,5 giây hỏi lại một lần để bật ngay khi người dùng cấp quyền.
+    /// Có quyền rồi thì dừng hẳn, chỉ kiểm tra lại mỗi lần đổi app (bị gỡ quyền thì chạy lại).
+    private func watchTrust() {
+        guard trustTimer == nil else { return }
+        let t = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkTrust() }
+        }
+        t.tolerance = 0.5
+        RunLoop.main.add(t, forMode: .common)
+        trustTimer = t
+    }
+
+    func checkTrust() {
         let now = AXIsProcessTrusted()
+        if now {
+            trustTimer?.invalidate()
+            trustTimer = nil
+        } else {
+            watchTrust()
+        }
         guard now != model.trusted else { return }
         model.trusted = now
         Diag.log("trusted=\(now)")
@@ -2679,6 +2707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   app.processIdentifier != me else { return }
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.checkTrust()
                 let changed = self.model.target?.processIdentifier != app.processIdentifier
                 self.model.setTarget(app)
                 if changed { self.panel.targetChanged() }
@@ -2720,6 +2749,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updater.checkIfDue() }
         }
+        updateTimer?.tolerance = 600
     }
 
     // MARK: Menu
