@@ -2,7 +2,7 @@
 // Đọc thanh menu của app đang dùng qua Accessibility, hiện thành bảng kính chia theo nhóm,
 // bấm một dòng để chạy lệnh, tìm theo tên hoặc theo phím, lưu bảng thành ảnh.
 // App không có tiếng Việt thì dịch tên lệnh bằng bộ dịch của macOS (macOS 15+), Final Cut Pro có bảng thuật ngữ riêng.
-// Final Cut Pro và Photoshop có thêm nhóm phím mặc định không nằm trên thanh menu.
+// Final Cut Pro, Photoshop và CapCut có thêm nhóm phím không nằm trên thanh menu.
 
 import AppKit
 import SwiftUI
@@ -276,6 +276,124 @@ enum DefaultKeys {
         ShortcutItem(id: 900_000 + id, title: title, path: [],
                      combo: KeyCombo(shift: shift, command: false, key: key),
                      enabled: true, element: nil, keyCode: code, isDefault: true)
+    }
+
+    /// Một dòng phím CapCut. mods: chuỗi gồm các ký tự c (⌘), o (⌥), s (⇧), t (⌃). code nil = thao tác kèm chuột, chỉ để xem.
+    private static func cc(_ id: Int, _ vi: String, _ en: String, _ mods: String, _ key: String, _ code: Int?) -> ShortcutItem {
+        ShortcutItem(id: 910_000 + id, title: L(vi, en), path: [],
+                     combo: KeyCombo(control: mods.contains("t"), option: mods.contains("o"), shift: mods.contains("s"),
+                                     command: mods.contains("c"), key: key),
+                     enabled: true, element: nil, keyCode: code, isDefault: true)
+    }
+
+    /// Phím CapCut lấy từ bảng Phím tắt trong CapCut (bộ "Phím tắt 3", Phước quay video 06/11/2026).
+    /// Thanh menu của CapCut chỉ hiện phím của bộ mặc định, nên với CapCut danh sách này được ưu tiên hơn menu.
+    private static func capCut() -> [ShortcutGroup] {
+        let scroll = L("Cuộn", "Scroll")
+        let note = L("Lấy từ bảng Phím tắt của CapCut, bộ \"Phím tắt 3\". Bạn dùng bộ khác hoặc đã đổi phím thì có thể khác.",
+                     "From CapCut's Keyboard Shortcuts panel, preset 3. Other presets or your own changes may differ.")
+        let timeline = [
+            cc(1, "Tách", "Split", "c", "K", kVK_ANSI_K),
+            cc(2, "Tách tất cả", "Split all", "cs", "K", kVK_ANSI_K),
+            cc(3, "Chọn chế độ", "Select mode", "", "V", kVK_ANSI_V),
+            cc(4, "Chế độ tách", "Split mode", "", "C", kVK_ANSI_C),
+            cc(5, "Chuyển sang khung hình bên trái", "Move to left frame", "s", "A", kVK_ANSI_A),
+            cc(6, "Chuyển sang khung hình bên phải", "Move to right frame", "", "A", kVK_ANSI_A),
+            cc(7, "Hút vào đoạn chính", "Snap to main track", "s", "⌫", kVK_Delete),
+            cc(8, "Tự động gắn", "Auto snapping", "", "S", kVK_ANSI_S),
+            cc(9, "Nút bật/tắt liên kết", "Toggle linkage", "c", "L", kVK_ANSI_L),
+            cc(10, "Nút bật/tắt trục xem trước", "Toggle preview axis", "s", "P", kVK_ANSI_P),
+            cc(11, "Phóng to", "Zoom in", "", "+", kVK_ANSI_Equal),
+            cc(12, "Thu nhỏ", "Zoom out", "", "−", kVK_ANSI_Minus),
+            cc(13, "Phóng to/Thu nhỏ", "Zoom in/out", "c", scroll, nil),
+            cc(14, "Lên/Xuống", "Up/Down", "", scroll, nil),
+            cc(15, "Trái/phải", "Left/Right", "o", scroll, nil),
+            cc(16, "Kích hoạt/vô hiệu hoá clip", "Enable/disable clip", "s", "E", kVK_ANSI_E),
+            cc(17, "Trích xuất/Khôi phục âm thanh", "Extract/restore audio", "os", "L", kVK_ANSI_L),
+            cc(18, "Thêm điểm đánh dấu", "Add marker", "", "M", kVK_ANSI_M),
+            cc(19, "Thêm điểm đánh dấu bằng màu mới", "Add marker with new color", "o", "M", kVK_ANSI_M),
+            cc(20, "Chuyển đến điểm đánh dấu tiếp theo", "Next marker", "s", "M", kVK_ANSI_M),
+            cc(21, "Chuyển về điểm đánh dấu trước", "Previous marker", "os", "M", kVK_ANSI_M),
+            cc(22, "Khung trước", "Previous frame", "", "←", kVK_LeftArrow),
+            cc(23, "Khung sau", "Next frame", "", "→", kVK_RightArrow),
+            cc(24, "Chuyển đến khung hình đầu tiên", "Go to first frame", "", "Home", kVK_Home),
+            cc(25, "Chuyển đến khung hình cuối cùng", "Go to last frame", "", "End", kVK_End),
+            cc(26, "Điểm cắt cuối cùng", "Previous cut point", "", "↑", kVK_UpArrow),
+            cc(27, "Điểm cắt tiếp theo", "Next cut point", "", "↓", kVK_DownArrow),
+            cc(28, "Điểm vào", "Mark in", "", "I", kVK_ANSI_I),
+            cc(29, "Điểm ra", "Mark out", "", "O", kVK_ANSI_O),
+            cc(30, "Chọn theo clip", "Select by clip", "s", "X", kVK_ANSI_X),
+            cc(31, "Bỏ chọn", "Deselect", "o", "X", kVK_ANSI_X),
+            cc(32, "Nhóm", "Group", "c", "G", kVK_ANSI_G),
+            cc(33, "Bỏ nhóm", "Ungroup", "cs", "G", kVK_ANSI_G),
+            cc(34, "Hiển thị bảng tốc độ", "Show speed panel", "c", "R", kVK_ANSI_R),
+            cc(35, "Tốc độ uốn cong", "Speed curve", "s", "B", kVK_ANSI_B),
+            cc(36, "Tạo clip ghép (dự án con)", "Create compound clip", "o", "G", kVK_ANSI_G),
+            cc(37, "Hoàn tác clip ghép (dự án con)", "Undo compound clip", "os", "G", kVK_ANSI_G),
+            cc(38, "Âm lượng +0.1dB", "Volume +0.1dB", "c", ".", kVK_ANSI_Period),
+            cc(39, "Âm lượng -0.1dB", "Volume -0.1dB", "c", ",", kVK_ANSI_Comma),
+            cc(40, "Vào", "Enter", "s", "↩", kVK_Return),
+            cc(41, "Tua lại nhanh", "Rewind", "", "J", kVK_ANSI_J),
+            cc(42, "Dừng tua nhanh", "Stop", "", "K", kVK_ANSI_K),
+            cc(43, "Tua đi nhanh", "Fast forward", "", "L", kVK_ANSI_L),
+            cc(44, "Xóa bên trái", "Delete left", "", "Q", kVK_ANSI_Q),
+            cc(45, "Xóa bên phải", "Delete right", "", "W", kVK_ANSI_W),
+            cc(46, "Hiện/ẩn bảng điều khiển khung hình chính", "Show/hide keyframe panel", "o", "K", kVK_ANSI_K),
+            cc(47, "Thêm khung hình chính", "Add keyframe", "so", "K", kVK_ANSI_K),
+            cc(48, "Chuyển tiếp nhiều khung", "Forward multiple frames", "s", "←", kVK_LeftArrow),
+            cc(49, "Quay lại nhiều khung", "Back multiple frames", "s", "→", kVK_RightArrow),
+            cc(50, "Thu phóng để vừa với dòng thời gian", "Zoom to fit timeline", "s", "Z", kVK_ANSI_Z),
+            cc(51, "Ghi màn hình", "Screen recording", "co", "P", kVK_ANSI_P),
+        ]
+        let player = [
+            cc(60, "Phát/Tạm dừng", "Play/Pause", "", "Space", kVK_Space),
+            cc(61, "Vào/Thoát chế độ toàn màn hình", "Enter/exit full screen", "", "~", kVK_ANSI_Grave),
+            cc(62, "Phóng to trình phát", "Zoom in player", "os", "+", kVK_ANSI_Equal),
+            cc(63, "Thu nhỏ trình phát", "Zoom out player", "os", "−", kVK_ANSI_Minus),
+            cc(64, "Thu phóng để vừa với trình phát", "Zoom to fit player", "os", "Z", kVK_ANSI_Z),
+            cc(65, "Hiện/ẩn thước kẻ", "Show/hide rulers", "co", "R", kVK_ANSI_R),
+            cc(66, "Hiện/ẩn đường tham chiếu", "Show/hide guides", "c", ";", kVK_ANSI_Semicolon),
+        ]
+        let basic = [
+            cc(70, "Bản sao", "Copy", "c", "C", kVK_ANSI_C),
+            cc(71, "Cắt", "Cut", "c", "X", kVK_ANSI_X),
+            cc(72, "Dán", "Paste", "c", "V", kVK_ANSI_V),
+            cc(73, "Sao chép thuộc tính", "Copy attributes", "co", "C", kVK_ANSI_C),
+            cc(74, "Dán thuộc tính", "Paste attributes", "co", "V", kVK_ANSI_V),
+            cc(75, "Xóa", "Delete", "", "⌫", kVK_Delete),
+            cc(76, "Làm lại", "Undo", "c", "Z", kVK_ANSI_Z),
+            cc(77, "Đặt lại", "Redo", "cs", "Z", kVK_ANSI_Z),
+            cc(78, "Nhập phương tiện", "Import media", "c", "I", kVK_ANSI_I),
+            cc(79, "Xuất", "Export", "c", "M", kVK_ANSI_M),
+            cc(80, "Dự án mới", "New project", "c", "N", kVK_ANSI_N),
+            cc(81, "Chuyển đổi bảng điều khiển tài liệu", "Toggle media panel", "", "⇥", kVK_Tab),
+            cc(82, "Nói để nhập", "Voice typing", "c", "D", kVK_ANSI_D),
+            cc(83, "Quay lại phần chỉnh sửa", "Back to editing", "co", "Q", kVK_ANSI_Q),
+            cc(84, "Thoát", "Quit", "c", "Q", kVK_ANSI_Q),
+            cc(85, "Toàn màn hình", "Full screen", "c", "F", kVK_ANSI_F),
+            cc(86, "Thoát chế độ toàn màn hình", "Exit full screen", "", "⎋", kVK_Escape),
+        ]
+        return [
+            ShortcutGroup(id: "capcut-timeline", title: L("Dòng thời gian", "Timeline"), items: timeline, note: note),
+            ShortcutGroup(id: "capcut-player", title: L("Trình phát", "Player"), items: player),
+            ShortcutGroup(id: "capcut-basic", title: L("Cơ bản", "Basic"), items: basic),
+        ]
+    }
+
+    /// Ghép menu thật với phím mặc định của app (nếu có).
+    static func merge(bundleID: String, menu: [ShortcutGroup]) -> [ShortcutGroup] {
+        if bundleID.hasPrefix("com.lemon.lv") {
+            // CapCut: bảng phím tắt đúng hơn menu, bỏ dòng menu trùng tên lệnh; nhóm của CapCut đặt lên trước.
+            let extra = capCut()
+            let names = Set(extra.flatMap { $0.items.map { $0.title.lowercased() } })
+            let rest = menu.compactMap { g -> ShortcutGroup? in
+                var g2 = g
+                g2.items = g.items.filter { !names.contains($0.title.lowercased()) }
+                return g2.items.isEmpty ? nil : g2
+            }
+            return extra + rest
+        }
+        return menu + groups(for: bundleID, existing: menu)
     }
 
     static func groups(for bundleID: String, existing: [ShortcutGroup]) -> [ShortcutGroup] {
@@ -624,8 +742,7 @@ final class KeysModel: ObservableObject {
         token = t
         DispatchQueue.global(qos: .userInitiated).async {
             let r = MenuReader.read(pid: pid)
-            let extra = DefaultKeys.groups(for: bid, existing: r.groups)
-            let all = r.groups + extra
+            let all = DefaultKeys.merge(bundleID: bid, menu: r.groups)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard self.token == t else { return }
@@ -1756,8 +1873,8 @@ struct WelcomeView: View {
                                  "Pin to keep the sheet open; it follows the app you switch to."))
                     tip("square.and.arrow.down", L("Lưu bảng thành ảnh để chia sẻ. Đang tìm thì ảnh chỉ có kết quả tìm.",
                                                    "Save the sheet as an image to share. While searching, the image only has the results."))
-                    tip("sparkles", L("Final Cut Pro và Photoshop có thêm nhóm phím mặc định không nằm trên thanh menu.",
-                                      "Final Cut Pro and Photoshop get an extra group of default keys that aren't in the menu bar."))
+                    tip("sparkles", L("Final Cut Pro, Photoshop và CapCut có thêm nhóm phím không nằm trên thanh menu.",
+                                      "Final Cut Pro, Photoshop and CapCut get an extra group of keys that aren't in the menu bar."))
                 }
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading).softCard()
                 Button {

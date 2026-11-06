@@ -15,7 +15,7 @@ Miễn phí, mã nguồn mở (MIT). Làm bởi [Phước Rin](https://youtube.c
 - **Nhấn ⌘ hai lần rồi giữ** để xem nhanh, thả ra là ẩn. Đưa chuột vào bảng trước khi thả để giữ bảng lại.
 - **Ghim** để bảng luôn mở và tự đổi theo app bạn chuyển sang.
 - **Lưu thành ảnh** (PNG, kiểu kính mờ) để chia sẻ. Đang tìm thì ảnh chỉ có kết quả tìm, đang dịch thì ảnh có cả tên tiếng Việt.
-- **Final Cut Pro** và **Photoshop** có thêm nhóm phím mặc định không nằm trên thanh menu (J / K / L, phím công cụ V, B, M…).
+- **Final Cut Pro**, **Photoshop** và **CapCut** có thêm nhóm phím không nằm trên thanh menu (J / K / L, phím công cụ V, B, M…, bảng phím tắt của CapCut bộ "Phím tắt 3").
 - Tuỳ chọn hiện icon trên Dock: bấm icon là xem phím tắt của app vừa dùng.
 - Tự kiểm tra bản mới, cập nhật trong app (gói cập nhật có chữ ký).
 
@@ -34,9 +34,9 @@ RinKeys cần quyền **Trợ năng (Accessibility)** để đọc thanh menu c�
 
 ## Giới hạn
 
-- Chỉ đọc được phím tắt nằm trên thanh menu. Phím chỉ có trong cài đặt riêng của app thì không đọc được (trừ nhóm phím mặc định của Final Cut Pro và Photoshop).
+- Chỉ đọc được phím tắt nằm trên thanh menu. Phím chỉ có trong cài đặt riêng của app thì không đọc được (trừ nhóm phím thêm của Final Cut Pro, Photoshop và CapCut).
 - Một số app tự vẽ menu riêng (một số game, app viết bằng công cụ không chuẩn) thì macOS không cho đọc.
-- Nhóm phím mặc định của Final Cut Pro và Photoshop là phím gốc của hãng. Nếu bạn đã đổi phím trong app thì có thể khác.
+- Nhóm phím thêm của Final Cut Pro và Photoshop là phím gốc của hãng; của CapCut là bộ "Phím tắt 3" trong bảng Phím tắt của CapCut. Nếu bạn dùng bộ khác hoặc đã đổi phím trong app thì có thể khác.
 
 ## Build từ mã nguồn
 
@@ -58,12 +58,12 @@ RinKeys shows every keyboard shortcut of the app you're using on your Mac. Click
 
 Free and open source (MIT). Made by [Phước Rin](https://youtube.com/@phuocrin).
 
-**Features:** reads menu-bar shortcuts of any app, one card per menu · translates command names of apps that aren't in your language with macOS's on-device translator (macOS 15+), keeping Final Cut Pro terms like Audition or Storyline · search by name or by keys (type `⌘K`), Enter runs the first result · click a row to run the command · double-press and hold ⌘ to peek, release to hide (move the mouse onto the sheet first to keep it) · pin the sheet so it follows the app you switch to · save the sheet as a PNG · extra default-key groups for Final Cut Pro and Photoshop that aren't in the menu bar · optional Dock icon · built-in signed updates.
+**Features:** reads menu-bar shortcuts of any app, one card per menu · translates command names of apps that aren't in your language with macOS's on-device translator (macOS 15+), keeping Final Cut Pro terms like Audition or Storyline · search by name or by keys (type `⌘K`), Enter runs the first result · click a row to run the command · double-press and hold ⌘ to peek, release to hide (move the mouse onto the sheet first to keep it) · pin the sheet so it follows the app you switch to · save the sheet as a PNG · extra key groups for Final Cut Pro, Photoshop and CapCut that aren't in the menu bar · optional Dock icon · built-in signed updates.
 
 **Install:** download `RinKeys.dmg` from [Releases](https://github.com/PhuocRin/RinKeys/releases/latest), drag RinKeys to Applications and open it. If macOS blocks it, click Done (not Move to Trash), then System Settings → Privacy & Security → Security → Open Anyway. Then allow **Accessibility**: System Settings → Privacy & Security → Accessibility → turn on RinKeys. Requires macOS 14 or later.
 
 **Privacy:** Accessibility access is used to read the current app's menu bar and run commands you click. RinKeys only watches the ⌘ key for the peek gesture; it doesn't record what you type or send anything anywhere. The only network request is checking GitHub for new versions.
 
-**Limits:** only shortcuts that appear in the menu bar can be read (plus the default-key groups for Final Cut Pro and Photoshop). Apps that draw their own menus can't be read. Default keys may differ if you've changed them in the app.
+**Limits:** only shortcuts that appear in the menu bar can be read (plus the extra key groups for Final Cut Pro, Photoshop and CapCut). Apps that draw their own menus can't be read. Default keys may differ if you've changed them in the app.
 
 **Support:** RinKeys is free. If it helps you, you can support Phước Rin in the app (♥ Support the Author) or via [PayPal](https://paypal.me/phuocrin).
