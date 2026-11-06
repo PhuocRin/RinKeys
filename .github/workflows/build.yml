@@ -1,0 +1,113 @@
+# GitHub tự build RinKeys trên máy Mac của GitHub:
+#  - Mỗi lần đẩy code lên main (hoặc bấm Run workflow): build thử, file .dmg nằm ở mục Artifacts.
+#  - Mỗi lần Publish một Release (tag vX.Y): ký app, gắn RinKeys-X.Y.dmg, RinKeys.dmg, .zip, .zip.sig vào Release.
+# Ký app cần secret RINKEYS_SIGNING (chứng chỉ "Phuoc Rin RinKeys Signing" + khoá ký gói cập nhật, riêng của RinKeys).
+name: Build RinKeys
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Máy build (macos-26-intel mặc định; macos-latest = Mac chip M). Cả hai đều ra app universal."
+        default: macos-26-intel
+        type: choice
+        options: [macos-26-intel, macos-latest]
+
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner || 'macos-26-intel' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kiểm tra trình biên dịch
+        run: |
+          uname -m
+          swift --version
+
+      - name: Đánh số build
+        run: /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" Info.plist
+
+      - name: Lấy số phiên bản từ tag
+        if: github.event_name == 'release'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" Info.plist
+
+      - name: Chuẩn bị chứng chỉ ký
+        env:
+          RINKEYS_SIGNING: ${{ secrets.RINKEYS_SIGNING }}
+        run: |
+          if [ -z "$RINKEYS_SIGNING" ]; then
+            if [ "${{ github.event_name }}" = "release" ]; then
+              echo "::error::Thiếu secret RINKEYS_SIGNING, không thể phát hành bản chưa ký."
+              exit 1
+            fi
+            echo "::warning::Thiếu secret RINKEYS_SIGNING, build thử sẽ ký ad-hoc."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import base64, json, os
+          b = json.loads(base64.b64decode(os.environ["RINKEYS_SIGNING"]))
+          tmp = os.environ["RUNNER_TEMP"]
+          open(os.path.join(tmp, "sign.p12"), "wb").write(base64.b64decode(b["p12"]))
+          print("::add-mask::" + b["p12_password"])
+          print("::add-mask::" + b["update_key"])
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write("P12_PASSWORD=" + b["p12_password"] + "\n")
+              env.write("UPDATE_KEY=" + b["update_key"] + "\n")
+          PY
+
+      - name: Nạp chứng chỉ vào keychain tạm
+        run: |
+          if [ ! -f "$RUNNER_TEMP/sign.p12" ]; then exit 0; fi
+          KC="$RUNNER_TEMP/rinkeys.keychain-db"
+          KCPW="$(uuidgen)"
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          security import "$RUNNER_TEMP/sign.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KCPW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/sign.p12"
+          HASH="$(security find-certificate -c "Phuoc Rin RinKeys Signing" -Z "$KC" | awk '/SHA-1/ {print $3}')"
+          echo "Chứng chỉ: $HASH"
+          echo "SIGN_IDENTITY=$HASH" >> "$GITHUB_ENV"
+          echo "SIGN_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
+      - name: Build, ký app, tạo .dmg và gói cập nhật
+        run: ./build.sh release
+
+      - name: Lưu file (để tải khi build thử)
+        uses: actions/upload-artifact@v4
+        with:
+          name: RinKeys-build
+          path: |
+            build/RinKeys-*.dmg
+            build/RinKeys-*.zip
+            build/RinKeys-*.zip.sig
+
+      - name: Gắn file vào Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp build/RinKeys-*.dmg build/RinKeys.dmg
+          gh release upload "$GITHUB_REF_NAME" build/RinKeys-*.dmg build/RinKeys.dmg build/RinKeys-*.zip build/RinKeys-*.zip.sig --clobber
+
+      - name: Xoá keychain tạm
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/rinkeys.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/rinkeys.keychain-db" || true
+          fi

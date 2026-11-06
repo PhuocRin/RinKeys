@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <mask id="m"><rect width="36" height="36" fill="#fff"/><circle cx="30" cy="6" r="7.5" fill="#000"/></mask>
+  <g mask="url(#m)">
+    <rect x="3.3" y="3.3" width="29.4" height="29.4" rx="7.5" fill="none" stroke="#000" stroke-width="2.6"/>
+    <text x="18" y="25.6" font-family="Inter Display" font-weight="700" font-size="20" fill="#000" text-anchor="middle">⌘</text>
+  </g>
+  <circle cx="30" cy="6" r="5" fill="#000"/>
+</svg>

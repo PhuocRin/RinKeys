@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B8CFF"/><stop offset="0.55" stop-color="#7A5CFF"/><stop offset="1" stop-color="#B05CFF"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.18" r="0.85">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.38"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.55"/><stop offset="1" stop-color="#fff" stop-opacity="0.24"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.96"/><stop offset="1" stop-color="#E9E4FF" stop-opacity="0.86"/>
+    </linearGradient>
+    <linearGradient id="capside" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C9BEFF"/><stop offset="1" stop-color="#9C8BF5"/>
+    </linearGradient>
+    <linearGradient id="pill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.9"/><stop offset="1" stop-color="#fff" stop-opacity="0.6"/>
+    </linearGradient>
+    <filter id="sh" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#2a1a6b" flood-opacity="0.35"/>
+    </filter>
+    <filter id="ish" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#120a3a" flood-opacity="0.5"/>
+    </filter>
+    <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+    <circle cx="820" cy="250" r="190" fill="#fff" opacity="0.08"/>
+    <circle cx="210" cy="860" r="230" fill="#3A1FA8" opacity="0.18"/>
+
+    <!-- Bảng phím tắt kính phía sau -->
+    <g filter="url(#sh)">
+      <rect x="200" y="215" width="560" height="470" rx="64" fill="url(#glass)" stroke="#fff" stroke-opacity="0.75" stroke-width="4"/>
+    </g>
+    <rect x="200" y="215" width="560" height="200" rx="64" fill="#fff" opacity="0.10"/>
+    <g fill="#fff">
+      <rect x="252" y="275" width="210" height="30" rx="15" opacity="0.95"/>
+      <rect x="252" y="365" width="250" height="26" rx="13" opacity="0.75"/>
+      <rect x="252" y="445" width="190" height="26" rx="13" opacity="0.75"/>
+      <rect x="252" y="525" width="230" height="26" rx="13" opacity="0.75"/>
+      <rect x="252" y="605" width="170" height="26" rx="13" opacity="0.6"/>
+    </g>
+    <g fill="url(#pill)">
+      <rect x="600" y="355" width="104" height="46" rx="14"/>
+      <rect x="626" y="435" width="78" height="46" rx="14"/>
+    </g>
+    <g font-family="Inter Display" font-weight="700" font-size="30" fill="#5B45D6" text-anchor="middle">
+      <text x="652" y="389">⇧⌘N</text>
+      <text x="665" y="469">⌘K</text>
+    </g>
+
+    <!-- Phím ⌘ lớn phía trước -->
+    <g filter="url(#ish)">
+      <rect x="500" y="520" width="350" height="350" rx="86" fill="url(#capside)"/>
+      <rect x="500" y="500" width="350" height="336" rx="86" fill="url(#cap)" stroke="#fff" stroke-width="4"/>
+    </g>
+    <rect x="530" y="512" width="290" height="110" rx="55" fill="#fff" opacity="0.55"/>
+    <text x="675" y="755" font-family="Inter Display" font-weight="600" font-size="230" fill="#4B33C9" text-anchor="middle">⌘</text>
+  </g>
+</svg>
