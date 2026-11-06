@@ -12,6 +12,10 @@ import ServiceManagement
 import UniformTypeIdentifiers
 import CryptoKit
 import Security
+import NaturalLanguage
+#if canImport(Translation)
+import Translation
+#endif
 
 // MARK: - Ngôn ngữ (theo ngôn ngữ của máy)
 
@@ -386,6 +390,7 @@ enum Prefs {
     static var doubleCommand: Bool { bool("doubleCommand", true) }
     static var showDisabled: Bool { bool("showDisabled", true) }
     static var showInDock: Bool { bool("showInDock", false) }
+    static var autoTranslate: Bool { bool("autoTranslate", true) }
 
     static var updateFrequency: UpdateFrequency {
         get { UpdateFrequency(rawValue: d.string(forKey: "updateFrequency") ?? "") ?? .daily }
@@ -450,6 +455,44 @@ enum Permission {
     }
 }
 
+// MARK: - Dịch tên lệnh (bộ dịch có sẵn của macOS, chạy trên máy)
+
+struct TranslateRequest: Equatable {
+    let id = UUID()
+    let source: String
+    let target: String
+}
+
+enum Translations {
+    /// Dịch sang ngôn ngữ của máy (máy để tiếng Việt thì dịch sang tiếng Việt).
+    static var targetCode: String {
+        Locale(identifier: Locale.preferredLanguages.first ?? "en").language.languageCode?.identifier ?? "en"
+    }
+
+    static var available: Bool {
+        if #available(macOS 15.0, *) { return true }
+        return false
+    }
+
+    private static var fileURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("RinKeys", isDirectory: true)
+            .appendingPathComponent("translations-\(targetCode).json")
+    }
+
+    static func load() -> [String: String] {
+        guard let url = fileURL, let data = try? Data(contentsOf: url),
+              let d = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return d
+    }
+
+    static func save(_ d: [String: String]) {
+        guard let url = fileURL else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(d) { try? data.write(to: url, options: .atomic) }
+    }
+}
+
 // MARK: - Dữ liệu bảng phím tắt
 
 @MainActor
@@ -465,6 +508,16 @@ final class KeysModel: ObservableObject {
     @Published var trusted = AXIsProcessTrusted()
     @Published var size = CGSize(width: 1000, height: 640)
     @Published var hasTarget = false
+
+    // Dịch tên lệnh
+    @Published var needsTranslation = false
+    @Published var translateOn = false
+    @Published var translating = false
+    @Published var translateNote: String?
+    @Published var translateRequest: TranslateRequest?
+    @Published private(set) var translations: [String: String] = Translations.load()
+    private var sourceLanguage = "en"
+    private var pendingTexts: [String] = []
 
     private(set) var target: NSRunningApplication?
     private var cache: [pid_t: [ShortcutGroup]] = [:]
@@ -486,12 +539,18 @@ final class KeysModel: ObservableObject {
         let pid = app.processIdentifier
         let bid = app.bundleIdentifier ?? ""
         let name = app.localizedName ?? bid
-        if appName != name { query = "" }
+        if bundleID != bid {
+            query = ""
+            needsTranslation = false
+            translateOn = false
+            translateNote = nil
+        }
         appName = name
         appIcon = app.icon
         bundleID = bid
         groups = cache[pid] ?? []
         status = .ok
+        if !groups.isEmpty { checkLanguage() }
         guard trusted else { return }
         loading = true
         let t = UUID()
@@ -507,6 +566,7 @@ final class KeysModel: ObservableObject {
                     self.status = r.status
                     self.groups = all
                     if r.status == .ok { self.cache[pid] = all }
+                    self.checkLanguage()
                     let n = all.reduce(0) { $0 + $1.items.count }
                     Diag.log("\(name): \(n) " + "shortcuts, \(r.visited) items, " + String(format: "%.2fs", r.seconds) + " (\(r.status))")
                 }
@@ -515,6 +575,82 @@ final class KeysModel: ObservableObject {
     }
 
     func forget(pid: pid_t) { cache[pid] = nil }
+
+    /// Đoán ngôn ngữ của menu: khác ngôn ngữ của máy (vd Final Cut Pro, Photoshop chỉ có tiếng Anh) thì cho dịch.
+    private func checkLanguage() {
+        let sample = groups.filter { $0.items.first?.isDefault != true }
+            .flatMap { $0.items.prefix(25).map(\.title) }
+            .prefix(300).joined(separator: ". ")
+        guard Translations.available, !sample.isEmpty else { needsTranslation = false; translateOn = false; return }
+        let r = NLLanguageRecognizer()
+        r.processString(sample)
+        let lang = r.dominantLanguage?.rawValue ?? "en"
+        sourceLanguage = lang
+        let target = Translations.targetCode
+        needsTranslation = !lang.hasPrefix(target)
+        let manual = UserDefaults.standard.object(forKey: "translate." + bundleID) as? Bool
+        translateOn = needsTranslation && (manual ?? Prefs.autoTranslate)
+        if translateOn { requestTranslation() }
+    }
+
+    func toggleTranslate() {
+        translateOn.toggle()
+        UserDefaults.standard.set(translateOn, forKey: "translate." + bundleID)
+        translateNote = nil
+        if translateOn { requestTranslation() }
+    }
+
+    func requestTranslation() {
+        var texts = Set<String>()
+        for g in groups {
+            let isDefault = g.items.first?.isDefault == true
+            if !isDefault { texts.insert(g.title) }
+            for i in g.items {
+                texts.insert(i.title)
+                for p in i.path { texts.insert(p) }
+            }
+        }
+        let missing = texts.filter { !$0.isEmpty && translations[$0] == nil }
+        guard !missing.isEmpty else { return }
+        pendingTexts = missing.sorted()
+        translating = true
+        translateRequest = TranslateRequest(source: sourceLanguage, target: Translations.targetCode)
+    }
+
+    #if canImport(Translation)
+    @available(macOS 15.0, *)
+    func runTranslation(_ session: TranslationSession) async {
+        let texts = pendingTexts
+        pendingTexts = []
+        guard !texts.isEmpty else { translating = false; return }
+        do {
+            var i = 0
+            while i < texts.count {
+                let chunk = Array(texts[i..<min(i + 150, texts.count)])
+                let reqs = chunk.enumerated().map {
+                    TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset))
+                }
+                let res = try await session.translations(from: reqs)
+                var t = translations
+                for r in res {
+                    if let id = r.clientIdentifier, let k = Int(id), k < chunk.count { t[chunk[k]] = r.targetText }
+                }
+                translations = t
+                i += 150
+            }
+            Translations.save(translations)
+            Diag.log("translated \(texts.count) (\(sourceLanguage)→\(Translations.targetCode))")
+        } catch {
+            translateNote = L("Chưa dịch được. Vào Cài đặt hệ thống → Cài đặt chung → Ngôn ngữ & Vùng → Ngôn ngữ dịch thuật… → tải Tiếng Việt, rồi bấm lại nút Dịch.",
+                              "Couldn't translate. Open System Settings → General → Language & Region → Translation Languages…, download your language, then press Translate again.")
+            Diag.log("translate error: \(error.localizedDescription)")
+        }
+        translating = false
+    }
+    #endif
+
+    /// Bản dịch của một chữ trên menu (chỉ khi đang bật dịch).
+    func tr(_ s: String) -> String? { translateOn ? translations[s] : nil }
 
     func visibleGroups(showDisabled: Bool) -> [ShortcutGroup] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -525,7 +661,9 @@ final class KeysModel: ObservableObject {
                 guard showDisabled || item.enabled else { return false }
                 if q.isEmpty { return true }
                 if item.title.range(of: q, options: opts) != nil { return true }
+                if let t = tr(item.title), t.range(of: q, options: opts) != nil { return true }
                 if g.title.range(of: q, options: opts) != nil { return true }
+                if let t = tr(g.title), t.range(of: q, options: opts) != nil { return true }
                 if item.path.joined(separator: " ").range(of: q, options: opts) != nil { return true }
                 return item.combo.text.range(of: q, options: .caseInsensitive) != nil
             }
@@ -534,11 +672,11 @@ final class KeysModel: ObservableObject {
     }
 
     /// Chia nhóm vào các cột theo thứ tự đọc (trên xuống, trái qua), cắt nhóm dài sang cột sau.
-    nonisolated static func columns(_ groups: [ShortcutGroup], count: Int) -> [[ShortcutGroup]] {
+    nonisolated static func columns(_ groups: [ShortcutGroup], count: Int, rowWeight: Double = 1) -> [[ShortcutGroup]] {
         let n = max(1, count)
         var cols = Array(repeating: [ShortcutGroup](), count: n)
         let header = 1.8
-        let total = groups.reduce(0.0) { $0 + Double($1.items.count) + header }
+        let total = groups.reduce(0.0) { $0 + Double($1.items.count) * rowWeight + header }
         let target = max(6, total / Double(n))
         var queue = groups
         var c = 0
@@ -546,14 +684,14 @@ final class KeysModel: ObservableObject {
         var i = 0
         while i < queue.count {
             let g = queue[i]
-            let w = Double(g.items.count) + header
+            let w = Double(g.items.count) * rowWeight + header
             if c == n - 1 || load + w <= target + 1.5 {
                 cols[c].append(g)
                 load += w
                 i += 1
                 continue
             }
-            let room = Int(target - load - header)
+            let room = Int((target - load - header) / rowWeight)
             if room >= 4 && g.items.count - room >= 3 {
                 var first = g
                 first.items = Array(g.items.prefix(room))
@@ -616,6 +754,7 @@ final class PanelController {
     private var resignObserver: NSObjectProtocol?
     private(set) var isPeek = false
     private(set) var lastHide = Date.distantPast
+    private var peekMouse = NSPoint.zero
 
     init(model: KeysModel) { self.model = model }
 
@@ -655,6 +794,7 @@ final class PanelController {
         if p.isVisible && !isPeek && peek { return }
         isPeek = peek
         let mouse = NSEvent.mouseLocation
+        peekMouse = mouse
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         let vf = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let w = min(max(vf.width * 0.84, 560), 1240)
@@ -673,10 +813,13 @@ final class PanelController {
         p.invalidateShadow()
     }
 
-    /// Thả ⌘ khi đang xem nhanh: chuột đang nằm trên bảng thì giữ bảng lại, không thì ẩn.
+    /// Thả ⌘ khi đang xem nhanh thì ẩn. Chỉ giữ bảng lại khi đang ghim, hoặc người dùng đã di chuột vào bảng
+    /// (bảng to, hiện ngay dưới con trỏ, nên chuột nằm sẵn trên bảng mà không di thì vẫn ẩn).
     func endPeek() {
         guard isPeek, let p = panel, p.isVisible else { isPeek = false; return }
-        if NSMouseInRect(NSEvent.mouseLocation, p.frame, false) || model.pinned {
+        let now = NSEvent.mouseLocation
+        let moved = hypot(now.x - peekMouse.x, now.y - peekMouse.y) > 40
+        if model.pinned || (moved && NSMouseInRect(now, p.frame, false)) {
             isPeek = false
             p.level = .floating
             p.makeKeyAndOrderFront(nil)
@@ -857,6 +1000,14 @@ func itemLabel(_ item: ShortcutItem, secondary: Color) -> AttributedString {
     return out
 }
 
+/// Tên lệnh đã dịch (cả đường dẫn menu con), nil khi chưa có bản dịch.
+@MainActor
+func translatedLabel(_ item: ShortcutItem, model: KeysModel) -> String? {
+    guard let t = model.tr(item.title) else { return nil }
+    let path = item.path.map { model.tr($0) ?? $0 }
+    return path.isEmpty ? t : path.joined(separator: " › ") + " › " + t
+}
+
 struct ShortcutRow: View {
     let item: ShortcutItem
     @ObservedObject var model: KeysModel
@@ -867,10 +1018,18 @@ struct ShortcutRow: View {
             model.run(item)
         } label: {
             HStack(spacing: 8) {
-                Text(itemLabel(item, secondary: .secondary))
-                    .font(.system(size: 12.5))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                if let vi = translatedLabel(item, model: model) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(verbatim: vi).font(.system(size: 12.5)).lineLimit(1).truncationMode(.middle)
+                        Text(itemLabel(item, secondary: .secondary)).font(.system(size: 10.5))
+                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                } else {
+                    Text(itemLabel(item, secondary: .secondary))
+                        .font(.system(size: 12.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 Spacer(minLength: 6)
                 KeyCapsView(combo: item.combo)
             }
@@ -890,6 +1049,13 @@ struct ShortcutRow: View {
     }
 }
 
+@MainActor
+func groupTitle(_ g: ShortcutGroup, model: KeysModel?) -> String {
+    var t = g.title
+    if let model, let vi = model.tr(g.title), vi.lowercased() != g.title.lowercased() { t = vi + " (" + g.title + ")" }
+    return t + (g.continued ? L(" (tiếp)", " (cont.)") : "")
+}
+
 struct GroupView: View {
     let group: ShortcutGroup
     @ObservedObject var model: KeysModel
@@ -897,7 +1063,7 @@ struct GroupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 6) {
-                Text(group.title + (group.continued ? L(" (tiếp)", " (cont.)") : ""))
+                Text(groupTitle(group, model: model))
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
@@ -954,6 +1120,7 @@ struct KeysView: View {
         }
         .frame(width: model.size.width, height: model.size.height)
         .bigGlass(cornerRadius: 28)
+        .modifier(TranslateHost(model: model))
         .onAppear { searchFocused = true }
     }
 
@@ -993,6 +1160,17 @@ struct KeysView: View {
                 Exporter.export(model: model, groups: groups)
             }
             .disabled(groups.isEmpty)
+            if model.needsTranslation {
+                ZStack {
+                    IconButton(symbol: "translate",
+                               help: model.translateOn ? L("Đang dịch tên lệnh. Bấm để xem tên gốc", "Showing translated names. Click for the originals")
+                                                       : L("Dịch tên lệnh sang tiếng Việt", "Translate command names"),
+                               tint: model.translateOn ? .accentColor : .primary) {
+                        model.toggleTranslate()
+                    }
+                    if model.translating { ProgressView().controlSize(.mini).offset(x: 12, y: 12) }
+                }
+            }
             IconButton(symbol: model.pinned ? "pin.fill" : "pin",
                        help: L("Ghim: giữ bảng luôn mở, tự đổi theo app bạn chuyển sang", "Pin: keep the sheet open and follow the app you switch to"),
                        tint: model.pinned ? .accentColor : .primary) {
@@ -1018,6 +1196,9 @@ struct KeysView: View {
             .frame(width: 30, height: 30)
             .background(Circle().fill(Color.primary.opacity(0.07)))
             .fixedSize()
+            IconButton(symbol: "xmark", help: L("Đóng (Esc)", "Close (Esc)")) {
+                AppDelegate.shared?.panel.hide(restoreFocus: true)
+            }
         }
         .padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 14)
     }
@@ -1050,7 +1231,7 @@ struct KeysView: View {
             let colWidth = (model.size.width - 44 - CGFloat(colCount - 1) * 20) / CGFloat(colCount)
             ScrollView {
                 HStack(alignment: .top, spacing: 20) {
-                    ForEach(Array(KeysModel.columns(groups, count: colCount).enumerated()), id: \.offset) { _, col in
+                    ForEach(Array(KeysModel.columns(groups, count: colCount, rowWeight: model.translateOn ? 1.5 : 1).enumerated()), id: \.offset) { _, col in
                         VStack(alignment: .leading, spacing: 16) {
                             ForEach(col) { g in GroupView(group: g, model: model) }
                         }
@@ -1082,8 +1263,12 @@ struct KeysView: View {
 
     private var footer: some View {
         HStack(spacing: 6) {
-            Text(L("Bấm một dòng để chạy lệnh · Enter chạy kết quả đầu tiên · Esc để đóng",
-                   "Click a row to run it · Enter runs the first result · Esc to close"))
+            if let note = model.translateNote {
+                Label(note, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).lineLimit(2)
+            } else {
+                Text(L("Bấm một dòng để chạy lệnh · Enter chạy kết quả đầu tiên · Esc để đóng",
+                       "Click a row to run it · Enter runs the first result · Esc to close"))
+            }
             Spacer()
             if Prefs.doubleCommand {
                 Text(L("Nhấn ⌘ hai lần rồi giữ để xem nhanh", "Double-press and hold ⌘ to peek"))
@@ -1095,6 +1280,50 @@ struct KeysView: View {
     }
 }
 
+// MARK: - Chạy bộ dịch (cần macOS 15)
+
+struct TranslateHost: ViewModifier {
+    @ObservedObject var model: KeysModel
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if canImport(Translation)
+        if #available(macOS 15.0, *) {
+            content.modifier(TranslateTask(model: model))
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+#if canImport(Translation)
+@available(macOS 15.0, *)
+struct TranslateTask: ViewModifier {
+    @ObservedObject var model: KeysModel
+    @State private var config: TranslationSession.Configuration?
+
+    func body(content: Content) -> some View {
+        content
+            .translationTask(config) { session in
+                await model.runTranslation(session)
+            }
+            .onChange(of: model.translateRequest) { _, req in
+                guard let req else { return }
+                let source = Locale.Language(identifier: req.source)
+                let target = Locale.Language(identifier: req.target)
+                if config?.source == source && config?.target == target {
+                    config?.invalidate()
+                } else {
+                    config = TranslationSession.Configuration(source: source, target: target)
+                }
+            }
+    }
+}
+#endif
+
 // MARK: - Xuất ảnh
 
 struct ExportSheet: View {
@@ -1102,6 +1331,10 @@ struct ExportSheet: View {
     let icon: NSImage?
     let groups: [ShortcutGroup]
     let total: Int
+    /// Bản dịch tên lệnh (nil = không dịch).
+    var translations: [String: String]? = nil
+
+    private func tr(_ s: String) -> String? { translations?[s] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
@@ -1115,7 +1348,7 @@ struct ExportSheet: View {
                 }
             }
             HStack(alignment: .top, spacing: 20) {
-                ForEach(Array(KeysModel.columns(groups, count: 3).enumerated()), id: \.offset) { _, col in
+                ForEach(Array(KeysModel.columns(groups, count: 3, rowWeight: translations == nil ? 1 : 1.5).enumerated()), id: \.offset) { _, col in
                     VStack(alignment: .leading, spacing: 18) {
                         ForEach(col) { g in card(g) }
                     }
@@ -1145,15 +1378,30 @@ struct ExportSheet: View {
         }
     }
 
+    private func cardTitle(_ g: ShortcutGroup) -> String {
+        var t = g.title
+        if let vi = tr(g.title), vi.lowercased() != g.title.lowercased() { t = vi + " (" + g.title + ")" }
+        return t + (g.continued ? L(" (tiếp)", " (cont.)") : "")
+    }
+
     private func card(_ g: ShortcutGroup) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(g.title + (g.continued ? L(" (tiếp)", " (cont.)") : ""))
+            Text(cardTitle(g))
                 .font(.system(size: 15, weight: .heavy, design: .rounded)).textCase(.uppercase).opacity(0.85)
                 .padding(.bottom, 2)
             ForEach(g.items) { item in
                 HStack(spacing: 8) {
-                    Text(itemLabel(item, secondary: Color.white.opacity(0.65)))
-                        .font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                    if let vi = tr(item.title) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: (item.path.map { tr($0) ?? $0 } + [vi]).joined(separator: " › "))
+                                .font(.system(size: 14, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                            Text(itemLabel(item, secondary: Color.white.opacity(0.65)))
+                                .font(.system(size: 11.5, weight: .medium)).opacity(0.7).lineLimit(1).truncationMode(.middle)
+                        }
+                    } else {
+                        Text(itemLabel(item, secondary: Color.white.opacity(0.65)))
+                            .font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                    }
                     Spacer(minLength: 6)
                     KeyCapsView(combo: item.combo, size: 13, light: true)
                 }
@@ -1178,7 +1426,8 @@ struct ExportSheet: View {
 enum Exporter {
     static func export(model: KeysModel, groups: [ShortcutGroup]) {
         let total = groups.reduce(0) { $0 + $1.items.count }
-        let sheet = ExportSheet(appName: model.appName, icon: model.appIcon, groups: groups, total: total)
+        let sheet = ExportSheet(appName: model.appName, icon: model.appIcon, groups: groups, total: total,
+                                translations: model.translateOn ? model.translations : nil)
         let renderer = ImageRenderer(content: sheet)
         renderer.scale = 2
         guard let cg = renderer.cgImage else { Diag.log("export: render failed"); return }
@@ -1366,8 +1615,10 @@ struct WelcomeView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     tip("menubar.rectangle", L("Bấm icon ⌘ trên thanh menu để xem phím tắt của app đang dùng. Chuột phải vào icon để mở cài đặt.",
                                                "Click the ⌘ icon in the menu bar to see the current app's shortcuts. Right-click it for settings."))
-                    tip("command", L("Nhấn ⌘ hai lần rồi giữ để xem nhanh, thả ra là ẩn. Đưa chuột vào bảng trước khi thả để giữ bảng lại.",
-                                     "Double-press and hold ⌘ to peek; release to hide. Move the mouse onto the sheet before releasing to keep it."))
+                    tip("command", L("Nhấn ⌘ hai lần rồi giữ để xem nhanh, thả ra là ẩn. Muốn giữ bảng lại thì di chuột vào bảng trước khi thả, hoặc bấm ghim. Nút ✕ hoặc Esc để đóng.",
+                                     "Double-press and hold ⌘ to peek; release to hide. To keep it, move the mouse onto the sheet before releasing, or pin it. ✕ or Esc closes it."))
+                    tip("translate", L("App không có tiếng Việt (Final Cut Pro, Photoshop…) thì tên lệnh được tự dịch, tên gốc nằm dòng dưới. Nút Dịch trên bảng để bật tắt.",
+                                       "Apps not in your language (Final Cut Pro, Photoshop…) get translated command names, with the original below. Use the Translate button to switch."))
                     tip("magnifyingglass", L("Gõ để tìm theo tên lệnh hoặc theo phím. Enter chạy kết quả đầu tiên, bấm vào một dòng để chạy lệnh đó.",
                                              "Type to search by command or key. Enter runs the first result; click a row to run it."))
                     tip("pin", L("Ghim để bảng luôn mở, bảng tự đổi theo app bạn chuyển sang.",
@@ -1426,6 +1677,7 @@ struct SettingsView: View {
     @AppStorage("doubleCommand") private var doubleCommand = true
     @AppStorage("showDisabled") private var showDisabled = true
     @AppStorage("showInDock") private var showInDock = false
+    @AppStorage("autoTranslate") private var autoTranslate = true
     @State private var login = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -1451,6 +1703,13 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Toggle(L("Hiện cả lệnh đang mờ trong menu", "Show greyed-out commands"), isOn: $showDisabled)
+                Toggle(L("Tự dịch tên lệnh của app không có tiếng Việt", "Auto-translate apps not in your language"), isOn: $autoTranslate)
+                    .disabled(!Translations.available)
+                Text(Translations.available
+                     ? L("Dùng bộ dịch có sẵn của macOS, dịch ngay trên máy. Mỗi app vẫn bật tắt riêng được bằng nút Dịch trên bảng.",
+                         "Uses macOS's built-in on-device translator. You can still switch each app with the Translate button on the sheet.")
+                     : L("Cần macOS 15 trở lên.", "Requires macOS 15 or later."))
+                    .noteText()
                 Toggle(L("Mở cùng máy", "Open at login"), isOn: $login)
                     .onChange(of: login) { on in
                         do {

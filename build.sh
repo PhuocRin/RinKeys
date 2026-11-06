@@ -21,7 +21,8 @@ for ARCH in arm64 x86_64; do
     -o "build/obj/RinKeys-${ARCH}" \
     -swift-version 5 -parse-as-library \
     -framework Cocoa -framework SwiftUI \
-    -framework ApplicationServices -framework Carbon -framework ServiceManagement -framework UniformTypeIdentifiers
+    -framework ApplicationServices -framework Carbon -framework ServiceManagement -framework UniformTypeIdentifiers \
+    -framework NaturalLanguage -Xlinker -weak_framework -Xlinker Translation
 done
 lipo -create build/obj/RinKeys-arm64 build/obj/RinKeys-x86_64 -output "${APP}/Contents/MacOS/RinKeys"
 cp Info.plist "${APP}/Contents/Info.plist"
