@@ -493,6 +493,61 @@ enum Translations {
     }
 }
 
+/// Thuật ngữ giữ nguyên tiếng Anh khi dịch (cách người dựng Việt vẫn gọi), theo từng app.
+enum Glossary {
+    struct Terms {
+        let id: String
+        let keep: [String]
+    }
+
+    static func forApp(_ bundleID: String) -> Terms? {
+        if bundleID.hasPrefix("com.apple.FinalCut") {
+            return Terms(id: "fcp1", keep: [
+                "Compound Clips", "Compound Clip", "Adjustment Clip", "Keyword Collection", "Lower Third",
+                "Freeze Frame", "Color Board", "Auditions", "Audition", "Storylines", "Storyline", "Multicam",
+                "Generators", "Generator", "Inspector", "Timeline", "Skimmer", "Skimming", "Playhead",
+                "Keyframes", "Keyframe", "Retime", "Snapping", "Blade", "Ripple", "Roll", "Slip", "Slide",
+                "Proxy", "B-roll",
+            ])
+        }
+        return nil
+    }
+
+    /// Thay thuật ngữ bằng mã tạm (RK0, RK1…) trước khi dịch để bộ dịch không đụng vào.
+    /// Trả nil khi cả chuỗi chỉ là một thuật ngữ (khỏi dịch).
+    static func protect(_ text: String, _ set: Terms) -> (String, [String])? {
+        var out = text
+        var terms: [String] = []
+        for term in set.keep {
+            let pattern = "\\b" + NSRegularExpression.escapedPattern(for: term) + "\\b"
+            guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            while let m = re.firstMatch(in: out, range: NSRange(out.startIndex..., in: out)),
+                  let r = Range(m.range, in: out) {
+                let token = "RK\(terms.count)"
+                terms.append(String(out[r]))
+                out.replaceSubrange(r, with: token)
+            }
+        }
+        if !terms.isEmpty, out.replacingOccurrences(of: "RK\\d+", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)).isEmpty {
+            return nil
+        }
+        return (out, terms)
+    }
+
+    /// Trả thuật ngữ về chỗ cũ. nil nếu bộ dịch làm mất mã tạm.
+    static func restore(_ translated: String, _ terms: [String]) -> String? {
+        var out = translated
+        for (i, term) in terms.enumerated().reversed() {
+            guard let re = try? NSRegularExpression(pattern: "R\\s?K\\s?\(i)(?!\\d)", options: [.caseInsensitive]),
+                  let m = re.firstMatch(in: out, range: NSRange(out.startIndex..., in: out)),
+                  let r = Range(m.range, in: out) else { return nil }
+            out.replaceSubrange(r, with: term)
+        }
+        return out
+    }
+}
+
 // MARK: - Dữ liệu bảng phím tắt
 
 @MainActor
@@ -517,7 +572,18 @@ final class KeysModel: ObservableObject {
     @Published var translateRequest: TranslateRequest?
     @Published private(set) var translations: [String: String] = Translations.load()
     private var sourceLanguage = "en"
-    private var pendingTexts: [String] = []
+    private struct Pending {
+        let key: String
+        let source: String
+        let terms: [String]
+    }
+    private var pending: [Pending] = []
+
+    /// Khoá lưu bản dịch: app có bảng thuật ngữ riêng thì bản dịch cũng tách riêng.
+    private func key(_ s: String) -> String {
+        if let g = Glossary.forApp(bundleID) { return g.id + "\u{1F}" + s }
+        return s
+    }
 
     private(set) var target: NSRunningApplication?
     private var cache: [pid_t: [ShortcutGroup]] = [:]
@@ -610,9 +676,25 @@ final class KeysModel: ObservableObject {
                 for p in i.path { texts.insert(p) }
             }
         }
-        let missing = texts.filter { !$0.isEmpty && translations[$0] == nil }
+        let missing = texts.filter { !$0.isEmpty && translations[key($0)] == nil }
         guard !missing.isEmpty else { return }
-        pendingTexts = missing.sorted()
+        let glossary = Glossary.forApp(bundleID)
+        var list: [Pending] = []
+        var direct: [String: String] = [:]
+        for text in missing.sorted() {
+            if let glossary {
+                if let r = Glossary.protect(text, glossary) {
+                    list.append(Pending(key: key(text), source: r.0, terms: r.1))
+                } else {
+                    direct[key(text)] = text // cả chuỗi là thuật ngữ: giữ nguyên
+                }
+            } else {
+                list.append(Pending(key: key(text), source: text, terms: []))
+            }
+        }
+        if !direct.isEmpty { translations.merge(direct) { $1 } }
+        guard !list.isEmpty else { Translations.save(translations); return }
+        pending = list
         translating = true
         translateRequest = TranslateRequest(source: sourceLanguage, target: Translations.targetCode)
     }
@@ -620,20 +702,27 @@ final class KeysModel: ObservableObject {
     #if canImport(Translation)
     @available(macOS 15.0, *)
     func runTranslation(_ session: TranslationSession) async {
-        let texts = pendingTexts
-        pendingTexts = []
+        let texts = pending
+        pending = []
         guard !texts.isEmpty else { translating = false; return }
         do {
             var i = 0
             while i < texts.count {
                 let chunk = Array(texts[i..<min(i + 150, texts.count)])
                 let reqs = chunk.enumerated().map {
-                    TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset))
+                    TranslationSession.Request(sourceText: $0.element.source, clientIdentifier: String($0.offset))
                 }
                 let res = try await session.translations(from: reqs)
                 var t = translations
                 for r in res {
-                    if let id = r.clientIdentifier, let k = Int(id), k < chunk.count { t[chunk[k]] = r.targetText }
+                    guard let id = r.clientIdentifier, let k = Int(id), k < chunk.count else { continue }
+                    let p = chunk[k]
+                    if p.terms.isEmpty {
+                        t[p.key] = r.targetText
+                    } else if let fixed = Glossary.restore(r.targetText, p.terms) {
+                        t[p.key] = fixed
+                    }
+                    // Mất mã tạm thì không lưu bản dịch: dòng đó hiện tên gốc tiếng Anh.
                 }
                 translations = t
                 i += 150
@@ -650,7 +739,20 @@ final class KeysModel: ObservableObject {
     #endif
 
     /// Bản dịch của một chữ trên menu (chỉ khi đang bật dịch).
-    func tr(_ s: String) -> String? { translateOn ? translations[s] : nil }
+    func tr(_ s: String) -> String? { translateOn ? translations[key(s)] : nil }
+
+    /// Bản dịch của mọi chữ trong các nhóm (dùng khi xuất ảnh).
+    func resolvedTranslations(_ groups: [ShortcutGroup]) -> [String: String] {
+        var d: [String: String] = [:]
+        for g in groups {
+            if let t = tr(g.title) { d[g.title] = t }
+            for i in g.items {
+                if let t = tr(i.title) { d[i.title] = t }
+                for p in i.path { if let t = tr(p) { d[p] = t } }
+            }
+        }
+        return d
+    }
 
     func visibleGroups(showDisabled: Bool) -> [ShortcutGroup] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -675,7 +777,7 @@ final class KeysModel: ObservableObject {
     nonisolated static func columns(_ groups: [ShortcutGroup], count: Int, rowWeight: Double = 1) -> [[ShortcutGroup]] {
         let n = max(1, count)
         var cols = Array(repeating: [ShortcutGroup](), count: n)
-        let header = 1.8
+        let header = 2.6
         let total = groups.reduce(0.0) { $0 + Double($1.items.count) * rowWeight + header }
         let target = max(6, total / Double(n))
         var queue = groups
@@ -1004,8 +1106,9 @@ func itemLabel(_ item: ShortcutItem, secondary: Color) -> AttributedString {
 @MainActor
 func translatedLabel(_ item: ShortcutItem, model: KeysModel) -> String? {
     guard let t = model.tr(item.title) else { return nil }
-    let path = item.path.map { model.tr($0) ?? $0 }
-    return path.isEmpty ? t : path.joined(separator: " › ") + " › " + t
+    let full = (item.path.map { model.tr($0) ?? $0 } + [t]).joined(separator: " › ")
+    // Giống hệt tên gốc (vd cả dòng là thuật ngữ giữ nguyên) thì khỏi hiện hai dòng.
+    return full == (item.path + [item.title]).joined(separator: " › ") ? nil : full
 }
 
 struct ShortcutRow: View {
@@ -1061,24 +1164,33 @@ struct GroupView: View {
     @ObservedObject var model: KeysModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Text(groupTitle(group, model: model))
                     .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(.secondary)
                     .textCase(.uppercase)
                     .lineLimit(1)
                 if group.items.first?.isDefault == true {
                     Image(systemName: "sparkles").font(.system(size: 10, weight: .bold)).foregroundStyle(.purple)
                 }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-            ForEach(group.items) { item in ShortcutRow(item: item, model: model) }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.primary.opacity(0.08))
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(group.items) { item in ShortcutRow(item: item, model: model) }
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 5)
             if let note = group.note {
-                Text(note).noteText().padding(.horizontal, 8).padding(.top, 5)
+                Text(note).noteText().padding(.horizontal, 12).padding(.bottom, 10)
             }
         }
+        .background(shape.fill(Color.primary.opacity(0.035)))
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
     }
 }
 
@@ -1232,7 +1344,7 @@ struct KeysView: View {
             ScrollView {
                 HStack(alignment: .top, spacing: 20) {
                     ForEach(Array(KeysModel.columns(groups, count: colCount, rowWeight: model.translateOn ? 1.5 : 1).enumerated()), id: \.offset) { _, col in
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 14) {
                             ForEach(col) { g in GroupView(group: g, model: model) }
                         }
                         .frame(width: colWidth, alignment: .topLeading)
@@ -1387,11 +1499,15 @@ struct ExportSheet: View {
     private func card(_ g: ShortcutGroup) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(cardTitle(g))
-                .font(.system(size: 15, weight: .heavy, design: .rounded)).textCase(.uppercase).opacity(0.85)
-                .padding(.bottom, 2)
+                .font(.system(size: 15, weight: .heavy, design: .rounded)).textCase(.uppercase)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 18).padding(.vertical, 11)
+                .background(Color.white.opacity(0.16))
+                .padding(.horizontal, -18).padding(.top, -18).padding(.bottom, 4)
             ForEach(g.items) { item in
                 HStack(spacing: 8) {
-                    if let vi = tr(item.title) {
+                    if let vi = tr(item.title),
+                       (item.path.map { tr($0) ?? $0 } + [vi]) != item.path + [item.title] {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(verbatim: (item.path.map { tr($0) ?? $0 } + [vi]).joined(separator: " › "))
                                 .font(.system(size: 14, weight: .semibold)).lineLimit(1).truncationMode(.middle)
@@ -1416,6 +1532,7 @@ struct ExportSheet: View {
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.white.opacity(0.16))
         }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.white.opacity(0.45), lineWidth: 1.2)
         }
@@ -1427,7 +1544,7 @@ enum Exporter {
     static func export(model: KeysModel, groups: [ShortcutGroup]) {
         let total = groups.reduce(0) { $0 + $1.items.count }
         let sheet = ExportSheet(appName: model.appName, icon: model.appIcon, groups: groups, total: total,
-                                translations: model.translateOn ? model.translations : nil)
+                                translations: model.translateOn ? model.resolvedTranslations(groups) : nil)
         let renderer = ImageRenderer(content: sheet)
         renderer.scale = 2
         guard let cg = renderer.cgImage else { Diag.log("export: render failed"); return }
