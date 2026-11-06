@@ -850,7 +850,7 @@ func itemLabel(_ item: ShortcutItem, secondary: Color) -> AttributedString {
     var out = AttributedString()
     if !item.path.isEmpty {
         var p = AttributedString(item.path.joined(separator: " › ") + " › ")
-        p.foregroundColor = secondary
+        p.swiftUI.foregroundColor = secondary
         out += p
     }
     out += AttributedString(item.title)
