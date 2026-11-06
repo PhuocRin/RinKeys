@@ -15,7 +15,7 @@ Miễn phí, mã nguồn mở (MIT). Làm bởi [Phước Rin](https://youtube.c
 - **Nhấn ⌘ hai lần rồi giữ** để xem nhanh, thả ra là ẩn. Đưa chuột vào bảng trước khi thả để giữ bảng lại.
 - **Ghim** để bảng luôn mở và tự đổi theo app bạn chuyển sang.
 - **Lưu thành ảnh** (PNG, kiểu kính mờ) để chia sẻ. Đang tìm thì ảnh chỉ có kết quả tìm, đang dịch thì ảnh có cả tên tiếng Việt.
-- **Final Cut Pro**, **Photoshop** và **CapCut** có thêm nhóm phím không nằm trên thanh menu (J / K / L, phím công cụ V, B, M…, bảng phím tắt của CapCut bộ "Phím tắt 3").
+- **Final Cut Pro**, **Photoshop** và **CapCut** có thêm nhóm phím không nằm trên thanh menu (J / K / L, phím công cụ V, B, M…, bảng phím tắt mặc định của CapCut).
 - Tuỳ chọn hiện icon trên Dock: bấm icon là xem phím tắt của app vừa dùng.
 - Tự kiểm tra bản mới, cập nhật trong app (gói cập nhật có chữ ký).
 
@@ -36,7 +36,7 @@ RinKeys cần quyền **Trợ năng (Accessibility)** để đọc thanh menu c�
 
 - Chỉ đọc được phím tắt nằm trên thanh menu. Phím chỉ có trong cài đặt riêng của app thì không đọc được (trừ nhóm phím thêm của Final Cut Pro, Photoshop và CapCut).
 - Một số app tự vẽ menu riêng (một số game, app viết bằng công cụ không chuẩn) thì macOS không cho đọc.
-- Nhóm phím thêm của Final Cut Pro và Photoshop là phím gốc của hãng; của CapCut là bộ "Phím tắt 3" trong bảng Phím tắt của CapCut. Nếu bạn dùng bộ khác hoặc đã đổi phím trong app thì có thể khác.
+- Nhóm phím thêm của Final Cut Pro và Photoshop là phím gốc của hãng; của CapCut là bộ mặc định trong bảng Phím tắt của CapCut. Nếu bạn chọn bộ khác hoặc đã đổi phím trong app thì có thể khác.
 
 ## Build từ mã nguồn
 

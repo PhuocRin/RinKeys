@@ -286,12 +286,12 @@ enum DefaultKeys {
                      enabled: true, element: nil, keyCode: code, isDefault: true)
     }
 
-    /// Phím CapCut lấy từ bảng Phím tắt trong CapCut (bộ "Phím tắt 3", Phước quay video 06/11/2026).
+    /// Phím CapCut lấy từ bảng Phím tắt trong CapCut, bộ mặc định ("Phím tắt 3"; Phước quay video 06/11/2026).
     /// Thanh menu của CapCut chỉ hiện phím của bộ mặc định, nên với CapCut danh sách này được ưu tiên hơn menu.
     private static func capCut() -> [ShortcutGroup] {
         let scroll = L("Cuộn", "Scroll")
-        let note = L("Lấy từ bảng Phím tắt của CapCut, bộ \"Phím tắt 3\". Bạn dùng bộ khác hoặc đã đổi phím thì có thể khác.",
-                     "From CapCut's Keyboard Shortcuts panel, preset 3. Other presets or your own changes may differ.")
+        let note = L("Lấy từ bảng Phím tắt của CapCut, bộ mặc định. Bạn đã chọn bộ khác hoặc tự đổi phím thì có thể khác.",
+                     "From CapCut's Keyboard Shortcuts panel, default set. Another set or your own changes may differ.")
         let timeline = [
             cc(1, "Tách", "Split", "c", "K", kVK_ANSI_K),
             cc(2, "Tách tất cả", "Split all", "cs", "K", kVK_ANSI_K),
