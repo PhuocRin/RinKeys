@@ -1,6 +1,6 @@
 # RinKeys
 
-Xem toàn bộ phím tắt của app bạn đang dùng trên Mac. Bấm icon ⌘ trên thanh menu (hoặc nhấn ⌘ hai lần rồi giữ) là hiện bảng kính với mọi phím tắt của app đó, tìm nhanh, bấm để chạy lệnh và lưu bảng thành ảnh.
+Xem toàn bộ phím tắt của app bạn đang dùng trên Mac. Trang app: [phuocrin.com/rinkeys](https://phuocrin.com/rinkeys/). Bấm icon ⌘ trên thanh menu (hoặc nhấn ⌘ hai lần rồi giữ) là hiện bảng kính với mọi phím tắt của app đó, tìm nhanh, bấm để chạy lệnh và lưu bảng thành ảnh.
 
 Miễn phí, mã nguồn mở (MIT). Làm bởi [Phước Rin](https://youtube.com/@phuocrin).
 
@@ -24,7 +24,7 @@ Miễn phí, mã nguồn mở (MIT). Làm bởi [Phước Rin](https://youtube.c
 1. Tải `RinKeys.dmg` ở [Releases](https://github.com/PhuocRin/RinKeys/releases/latest).
 2. Mở file, kéo **RinKeys** vào **Applications**.
 3. Mở RinKeys. Nếu macOS chặn: bấm **Xong** (đừng bấm Chuyển vào Thùng rác) → **Cài đặt hệ thống → Quyền riêng tư & Bảo mật** → kéo xuống phần Bảo mật → **Vẫn mở**.
-4. Cấp quyền **Trợ năng**: Cài đặt hệ thống → Quyền riêng tư & Bảo mật → Trợ năng → bật **RinKeys**.
+4. Cấp quyền **Trợ năng**: Cài đặt hệ thống → Quyền riêng tư & Bảo mật → Trợ năng → bật **RinKeys**. Trên macOS 27 mục này tên là **Điều khiển thiết bị và truy cập dữ liệu**.
 
 Cần macOS 14 trở lên, chạy trên Mac chip Apple và Mac Intel.
 

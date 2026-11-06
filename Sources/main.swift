@@ -415,7 +415,7 @@ enum AppInfo {
     static var build: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?" }
     static let repoURL = URL(string: "https://github.com/PhuocRin/RinKeys")!
     static let apiLatestRelease = URL(string: "https://api.github.com/repos/PhuocRin/RinKeys/releases/latest")!
-    static let webURL = URL(string: "https://phuocrin.com/")!
+    static let webURL = URL(string: "https://phuocrin.com/rinkeys/")!
     static let youtubeURL = URL(string: "https://youtube.com/@phuocrin")!
     static let tiktokURL = URL(string: "https://www.tiktok.com/@phuocrinrin")!
     static let facebookURL = URL(string: "https://www.facebook.com/phuocrinrin")!
@@ -796,14 +796,17 @@ final class KeysModel: ObservableObject {
         while i < queue.count {
             let g = queue[i]
             let w = Double(g.items.count) * rowWeight + header
-            if c == n - 1 || load + w <= target + 1.5 {
+            // Cột cuối, còn chỗ, hoặc cột đang trống mà nhóm quá ngắn để cắt: đặt cả nhóm vào cột này
+            // (không bỏ trống cột giữa khi app có ít phím).
+            let room = Int((target - load - header) / rowWeight)
+            let canSplit = room >= 4 && g.items.count - room >= 3
+            if c == n - 1 || load + w <= target + 1.5 || (load == 0 && !canSplit) {
                 cols[c].append(g)
                 load += w
                 i += 1
                 continue
             }
-            let room = Int((target - load - header) / rowWeight)
-            if room >= 4 && g.items.count - room >= 3 {
+            if canSplit {
                 var first = g
                 first.items = Array(g.items.prefix(room))
                 first.id = g.id + "#\(c)"
@@ -1771,8 +1774,8 @@ struct WelcomeView: View {
                     Text(L("RinKeys cần quyền này để đọc thanh menu của app đang dùng và chạy lệnh khi bạn bấm. RinKeys chỉ để ý phím ⌘ để mở bảng xem nhanh, không ghi lại phím bạn gõ và không gửi gì ra ngoài.",
                            "RinKeys needs this to read the current app's menu bar and run commands you click. It only watches the ⌘ key to open the peek sheet; it doesn't record what you type or send anything anywhere."))
                         .noteText()
-                    Text(L("Cài đặt hệ thống → Quyền riêng tư & Bảo mật → Trợ năng → bật RinKeys",
-                           "System Settings → Privacy & Security → Accessibility → turn on RinKeys"))
+                    Text(L("Cài đặt hệ thống → Quyền riêng tư & Bảo mật → Trợ năng → bật RinKeys. Trên macOS 27 mục này tên là Điều khiển thiết bị và truy cập dữ liệu.",
+                           "System Settings → Privacy & Security → Accessibility → turn on RinKeys. On macOS 27 this section has a new name; look for RinKeys under Privacy & Security."))
                         .font(.system(size: 12, weight: .medium)).fixedSize(horizontal: false, vertical: true)
                     Button {
                         Permission.request()
