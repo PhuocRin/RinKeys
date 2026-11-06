@@ -1,6 +1,7 @@
 // RinKeys — xem toàn bộ phím tắt của app đang dùng trên Mac.
-// Đọc thanh menu của app đang dùng qua Accessibility, hiện thành bảng kính,
-// bấm một dòng để chạy lệnh, tìm theo tên hoặc theo phím, xuất bảng thành ảnh.
+// Đọc thanh menu của app đang dùng qua Accessibility, hiện thành bảng kính chia theo nhóm,
+// bấm một dòng để chạy lệnh, tìm theo tên hoặc theo phím, lưu bảng thành ảnh.
+// App không có tiếng Việt thì dịch tên lệnh bằng bộ dịch của macOS (macOS 15+), Final Cut Pro có bảng thuật ngữ riêng.
 // Final Cut Pro và Photoshop có thêm nhóm phím mặc định không nằm trên thanh menu.
 
 import AppKit
@@ -388,17 +389,14 @@ enum Prefs {
     private static func bool(_ k: String, _ def: Bool) -> Bool { d.object(forKey: k) as? Bool ?? def }
 
     static var doubleCommand: Bool { bool("doubleCommand", true) }
-    static var showDisabled: Bool { bool("showDisabled", true) }
     static var showInDock: Bool { bool("showInDock", false) }
     static var autoTranslate: Bool { bool("autoTranslate", true) }
 
     static var updateFrequency: UpdateFrequency {
-        get { UpdateFrequency(rawValue: d.string(forKey: "updateFrequency") ?? "") ?? .daily }
-        set { d.set(newValue.rawValue, forKey: "updateFrequency") }
+        UpdateFrequency(rawValue: d.string(forKey: "updateFrequency") ?? "") ?? .daily
     }
     static var updateMode: UpdateMode {
-        get { UpdateMode(rawValue: d.string(forKey: "updateMode") ?? "") ?? .ask }
-        set { d.set(newValue.rawValue, forKey: "updateMode") }
+        UpdateMode(rawValue: d.string(forKey: "updateMode") ?? "") ?? .ask
     }
     static var lastUpdateCheck: Date? {
         get { d.object(forKey: "lastUpdateCheck") as? Date }
@@ -574,10 +572,13 @@ final class KeysModel: ObservableObject {
     private var sourceLanguage = "en"
     private struct Pending {
         let key: String
+        let text: String
         let source: String
         let terms: [String]
     }
     private var pending: [Pending] = []
+    /// Khoá đang chờ dịch, để mở lại bảng giữa chừng không gửi trùng.
+    private var inFlight = Swift.Set<String>()
 
     /// Khoá lưu bản dịch: app có bảng thuật ngữ riêng thì bản dịch cũng tách riêng.
     private func key(_ s: String) -> String {
@@ -676,7 +677,7 @@ final class KeysModel: ObservableObject {
                 for p in i.path { texts.insert(p) }
             }
         }
-        let missing = texts.filter { !$0.isEmpty && translations[key($0)] == nil }
+        let missing = texts.filter { !$0.isEmpty && translations[key($0)] == nil && !inFlight.contains(key($0)) }
         guard !missing.isEmpty else { return }
         let glossary = Glossary.forApp(bundleID)
         var list: [Pending] = []
@@ -684,17 +685,18 @@ final class KeysModel: ObservableObject {
         for text in missing.sorted() {
             if let glossary {
                 if let r = Glossary.protect(text, glossary) {
-                    list.append(Pending(key: key(text), source: r.0, terms: r.1))
+                    list.append(Pending(key: key(text), text: text, source: r.0, terms: r.1))
                 } else {
                     direct[key(text)] = text // cả chuỗi là thuật ngữ: giữ nguyên
                 }
             } else {
-                list.append(Pending(key: key(text), source: text, terms: []))
+                list.append(Pending(key: key(text), text: text, source: text, terms: []))
             }
         }
         if !direct.isEmpty { translations.merge(direct) { $1 } }
         guard !list.isEmpty else { Translations.save(translations); return }
-        pending = list
+        pending += list
+        inFlight.formUnion(list.map(\.key))
         translating = true
         translateRequest = TranslateRequest(source: sourceLanguage, target: Translations.targetCode)
     }
@@ -719,22 +721,28 @@ final class KeysModel: ObservableObject {
                     let p = chunk[k]
                     if p.terms.isEmpty {
                         t[p.key] = r.targetText
-                    } else if let fixed = Glossary.restore(r.targetText, p.terms) {
-                        t[p.key] = fixed
+                    } else {
+                        // Bộ dịch làm mất mã tạm thì giữ tên gốc tiếng Anh, khỏi dịch lại mỗi lần mở.
+                        t[p.key] = Glossary.restore(r.targetText, p.terms) ?? p.text
                     }
-                    // Mất mã tạm thì không lưu bản dịch: dòng đó hiện tên gốc tiếng Anh.
                 }
                 translations = t
                 i += 150
             }
             Translations.save(translations)
             Diag.log("translated \(texts.count) (\(sourceLanguage)→\(Translations.targetCode))")
+        } catch is CancellationError {
+            // Có yêu cầu dịch mới chen vào: trả phần chưa dịch về hàng chờ cho lượt sau.
+            pending = texts.filter { translations[$0.key] == nil } + pending
+            Translations.save(translations)
+            return
         } catch {
             translateNote = L("Chưa dịch được. Vào Cài đặt hệ thống → Cài đặt chung → Ngôn ngữ & Vùng → Ngôn ngữ dịch thuật… → tải Tiếng Việt, rồi bấm lại nút Dịch.",
                               "Couldn't translate. Open System Settings → General → Language & Region → Translation Languages…, download your language, then press Translate again.")
             Diag.log("translate error: \(error.localizedDescription)")
         }
-        translating = false
+        inFlight.subtract(texts.map(\.key))
+        translating = !pending.isEmpty
     }
     #endif
 
@@ -767,6 +775,7 @@ final class KeysModel: ObservableObject {
                 if g.title.range(of: q, options: opts) != nil { return true }
                 if let t = tr(g.title), t.range(of: q, options: opts) != nil { return true }
                 if item.path.joined(separator: " ").range(of: q, options: opts) != nil { return true }
+                if item.path.contains(where: { tr($0)?.range(of: q, options: opts) != nil }) { return true }
                 return item.combo.text.range(of: q, options: .caseInsensitive) != nil
             }
             return g2.items.isEmpty ? nil : g2
@@ -830,7 +839,8 @@ final class KeysModel: ObservableObject {
         }
     }
 
-    func runFirst(showDisabled: Bool) {
+    /// Enter trong ô tìm: chạy kết quả đầu tiên còn dùng được.
+    func runFirst() {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         if let first = visibleGroups(showDisabled: false).first?.items.first { run(first) }
     }
@@ -1153,9 +1163,9 @@ struct ShortcutRow: View {
 }
 
 @MainActor
-func groupTitle(_ g: ShortcutGroup, model: KeysModel?) -> String {
+func groupTitle(_ g: ShortcutGroup, model: KeysModel) -> String {
     var t = g.title
-    if let model, let vi = model.tr(g.title), vi.lowercased() != g.title.lowercased() { t = vi + " (" + g.title + ")" }
+    if let vi = model.tr(g.title), vi.lowercased() != g.title.lowercased() { t = vi + " (" + g.title + ")" }
     return t + (g.continued ? L(" (tiếp)", " (cont.)") : "")
 }
 
@@ -1219,6 +1229,7 @@ struct IconButton: View {
 struct KeysView: View {
     @ObservedObject var model: KeysModel
     @AppStorage("showDisabled") private var showDisabled = true
+    @AppStorage("doubleCommand") private var doubleCommand = true
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -1256,7 +1267,7 @@ struct KeysView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .focused($searchFocused)
-                    .onSubmit { model.runFirst(showDisabled: showDisabled) }
+                    .onSubmit { model.runFirst() }
                 if !model.query.isEmpty {
                     Button { model.query = "" } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -1382,7 +1393,7 @@ struct KeysView: View {
                        "Click a row to run it · Enter runs the first result · Esc to close"))
             }
             Spacer()
-            if Prefs.doubleCommand {
+            if doubleCommand {
                 Text(L("Nhấn ⌘ hai lần rồi giữ để xem nhanh", "Double-press and hold ⌘ to peek"))
             }
         }
